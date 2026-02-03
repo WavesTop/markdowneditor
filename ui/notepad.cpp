@@ -13,6 +13,7 @@
 #include <QApplication>
 #include <QPainter>
 #include <QPainterPath>
+#include <QMouseEvent>
 
 // ============ 颜色定义 ============
 namespace Theme {
@@ -30,10 +31,13 @@ namespace Theme {
 // ============ CustomTabBar 实现 ============
 CustomTabBar::CustomTabBar(QWidget* parent)
     : QTabBar(parent)
+    , m_hoverIndex(-1)
+    , m_closeButtonHovered(false)
 {
     setDrawBase(false);
     setExpanding(false);
     setElideMode(Qt::ElideRight);
+    setMouseTracking(true);  // 启用鼠标追踪
 }
 
 QSize CustomTabBar::tabSizeHint(int index) const
@@ -41,9 +45,65 @@ QSize CustomTabBar::tabSizeHint(int index) const
     QSize size = QTabBar::tabSizeHint(index);
     // 紧凑的 Tab 尺寸
     size.setHeight(28);
-    size.setWidth(qMin(size.width(), 150));
+    size.setWidth(qMin(size.width() + 24, 150));  // 为关闭按钮留空间
     size.setWidth(qMax(size.width(), 80));
     return size;
+}
+
+QRect CustomTabBar::closeButtonRect(int index) const
+{
+    QRect tabRect = this->tabRect(index);
+    return QRect(tabRect.right() - 20, tabRect.center().y() - 6, 12, 12);
+}
+
+void CustomTabBar::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton)
+    {
+        for (int i = 0; i < count(); i++)
+        {
+            if (closeButtonRect(i).contains(event->pos()))
+            {
+                emit tabCloseClicked(i);
+                return;
+            }
+        }
+    }
+    QTabBar::mousePressEvent(event);
+}
+
+void CustomTabBar::mouseMoveEvent(QMouseEvent* event)
+{
+    int oldHoverIndex = m_hoverIndex;
+    bool oldCloseHovered = m_closeButtonHovered;
+    
+    m_hoverIndex = -1;
+    m_closeButtonHovered = false;
+    
+    for (int i = 0; i < count(); i++)
+    {
+        if (tabRect(i).contains(event->pos()))
+        {
+            m_hoverIndex = i;
+            m_closeButtonHovered = closeButtonRect(i).contains(event->pos());
+            break;
+        }
+    }
+    
+    if (m_hoverIndex != oldHoverIndex || m_closeButtonHovered != oldCloseHovered)
+    {
+        update();
+    }
+    
+    QTabBar::mouseMoveEvent(event);
+}
+
+void CustomTabBar::leaveEvent(QEvent* event)
+{
+    m_hoverIndex = -1;
+    m_closeButtonHovered = false;
+    update();
+    QTabBar::leaveEvent(event);
 }
 
 void CustomTabBar::paintEvent(QPaintEvent* event)
@@ -59,7 +119,7 @@ void CustomTabBar::paintEvent(QPaintEvent* event)
     {
         QRect tabRect = this->tabRect(i);
         bool isSelected = (i == currentIndex());
-        bool isHovered = tabRect.contains(mapFromGlobal(QCursor::pos()));
+        bool isHovered = (i == m_hoverIndex);
         
         // Tab 背景
         QColor bgColor = Theme::backgroundDark;
@@ -95,11 +155,11 @@ void CustomTabBar::paintEvent(QPaintEvent* event)
         text = painter.fontMetrics().elidedText(text, Qt::ElideRight, textRect.width());
         painter.drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, text);
         
-        // 绘制关闭按钮
-        if (tabsClosable())
+        // 绘制关闭按钮（只在悬停时显示，或者选中时显示）
+        if (isSelected || isHovered)
         {
-            QRect closeRect(tabRect.right() - 20, tabRect.center().y() - 6, 12, 12);
-            bool closeHovered = closeRect.contains(mapFromGlobal(QCursor::pos()));
+            QRect closeRect = closeButtonRect(i);
+            bool closeHovered = (i == m_hoverIndex && m_closeButtonHovered);
             
             if (closeHovered)
             {
@@ -135,8 +195,12 @@ void CustomTabBar::paintEvent(QPaintEvent* event)
 CustomTabWidget::CustomTabWidget(QWidget* parent)
     : QTabWidget(parent)
 {
-    setTabBar(new CustomTabBar(this));
+    CustomTabBar* tabBar = new CustomTabBar(this);
+    setTabBar(tabBar);
     setDocumentMode(true);
+    
+    // 连接自定义关闭信号
+    connect(tabBar, &CustomTabBar::tabCloseClicked, this, &QTabWidget::tabCloseRequested);
 }
 
 // ============ Notepad 实现 ============
@@ -296,7 +360,7 @@ void Notepad::initMenuBar()
 void Notepad::initTabWidget()
 {
     m_tabWidget = new CustomTabWidget(this);
-    m_tabWidget->setTabsClosable(true);
+    // 不调用 setTabsClosable(true)，我们使用自定义的关闭按钮
     m_tabWidget->setMovable(true);
     m_tabWidget->setUsesScrollButtons(true);
 

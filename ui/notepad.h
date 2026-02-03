@@ -15,9 +15,20 @@ class CustomTabBar : public QTabBar
 public:
     explicit CustomTabBar(QWidget* parent = nullptr);
     
+signals:
+    void tabCloseClicked(int index);
+    
 protected:
     QSize tabSizeHint(int index) const override;
     void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
+    
+private:
+    QRect closeButtonRect(int index) const;
+    int m_hoverIndex;
+    bool m_closeButtonHovered;
 };
 
 // 自定义 TabWidget
