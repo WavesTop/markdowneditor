@@ -2,9 +2,31 @@
 #define NOTEPAD_H
 
 #include <QMainWindow>
-#include <QPlainTextEdit>
 #include <QTabWidget>
-#include <QMap>
+#include <QTabBar>
+#include <QStatusBar>
+#include <QLabel>
+#include "codeeditor.h"
+
+// 自定义 TabBar，实现更精细的样式控制
+class CustomTabBar : public QTabBar
+{
+    Q_OBJECT
+public:
+    explicit CustomTabBar(QWidget* parent = nullptr);
+    
+protected:
+    QSize tabSizeHint(int index) const override;
+    void paintEvent(QPaintEvent* event) override;
+};
+
+// 自定义 TabWidget
+class CustomTabWidget : public QTabWidget
+{
+    Q_OBJECT
+public:
+    explicit CustomTabWidget(QWidget* parent = nullptr);
+};
 
 class Notepad : public QMainWindow
 {
@@ -15,24 +37,22 @@ public:
     ~Notepad();
 
 private:
-    QTabWidget* m_tabWidget;
-    int m_untitledCount;  // 未命名文件计数器
+    CustomTabWidget* m_tabWidget;
+    QLabel* m_statusLabel;
+    QLabel* m_cursorPosLabel;
+    int m_untitledCount;
 
-    void initToolbar();
     void initUI();
+    void initMenuBar();
     void initTabWidget();
+    void initStatusBar();
+    void applyTheme();
 
-    // 获取当前活动的编辑器
-    QPlainTextEdit* currentEditor();
-    // 获取指定索引的编辑器
-    QPlainTextEdit* editorAt(int index);
-    // 创建新的编辑器Tab
-    QPlainTextEdit* createEditorTab(const QString& title, const QString& filePath = QString());
-    // 获取Tab对应的文件路径
+    CodeEditor* currentEditor();
+    CodeEditor* editorAt(int index);
+    CodeEditor* createEditorTab(const QString& title, const QString& filePath = QString());
     QString getFilePath(int index);
-    // 设置Tab对应的文件路径
     void setFilePath(int index, const QString& path);
-    // 更新Tab标题
     void updateTabTitle(int index, const QString& filePath);
 
 private slots:
@@ -42,6 +62,7 @@ private slots:
     void onSaveAsFile();
     void onCloseTab(int index);
     void onTabChanged(int index);
+    void updateCursorPosition();
 };
 
 #endif // NOTEPAD_H

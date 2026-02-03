@@ -25,6 +25,8 @@ set(PROJECT_SOURCES
 
     ui/notepad.cpp
     ui/notepad.h
+    ui/codeeditor.cpp
+    ui/codeeditor.h
 )
 
 add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})
