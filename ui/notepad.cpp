@@ -6,9 +6,11 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDir>
+#include <QFileInfo>
 
 Notepad::Notepad(QWidget *parent)
     : QMainWindow(parent)
+    , m_untitledCount(0)
 {
     setWindowTitle("Markdown Editor");
     resize(800, 600);
@@ -17,30 +19,27 @@ Notepad::Notepad(QWidget *parent)
 
 Notepad::~Notepad()
 {
-
 }
 
 void Notepad::initUI()
 {
     initTabWidget();
-    initTextEdit();
     initToolbar();
 
-    QWidget *centralWidget = new QWidget(this);
-    QVBoxLayout *contentLayout = new QVBoxLayout(centralWidget);
-    contentLayout->addWidget(m_textEdit);
-    setCentralWidget(centralWidget);
+    setCentralWidget(m_tabWidget);
+
+    // 创建第一个空白Tab
+    onNewFile();
 }
 
 void Notepad::initTabWidget()
 {
+    m_tabWidget = new QTabWidget(this);
+    m_tabWidget->setTabsClosable(true);
+    m_tabWidget->setMovable(true);
 
-}
-
-void Notepad::initTextEdit()
-{
-    m_textEdit = new QPlainTextEdit();
-    m_textEdit->setPlaceholderText("Enter your markdown text here...");
+    connect(m_tabWidget, &QTabWidget::tabCloseRequested, this, &Notepad::onCloseTab);
+    connect(m_tabWidget, &QTabWidget::currentChanged, this, &Notepad::onTabChanged);
 }
 
 void Notepad::initToolbar()
@@ -51,6 +50,7 @@ void Notepad::initToolbar()
     QAction* openAction = new QAction("Open", this);
     QAction* saveAction = new QAction("Save", this);
     QAction* saveAsAction = new QAction("Save As", this);
+
     toolbar->addAction(newAction);
     toolbar->addAction(openAction);
     toolbar->addAction(saveAction);
@@ -62,19 +62,69 @@ void Notepad::initToolbar()
     connect(saveAsAction, &QAction::triggered, this, &Notepad::onSaveAsFile);
 }
 
+QPlainTextEdit* Notepad::currentEditor()
+{
+    return qobject_cast<QPlainTextEdit*>(m_tabWidget->currentWidget());
+}
+
+QPlainTextEdit* Notepad::editorAt(int index)
+{
+    return qobject_cast<QPlainTextEdit*>(m_tabWidget->widget(index));
+}
+
+QPlainTextEdit* Notepad::createEditorTab(const QString& title, const QString& filePath)
+{
+    QPlainTextEdit* editor = new QPlainTextEdit();
+    editor->setPlaceholderText("Enter your markdown text here...");
+
+    // 将文件路径存储在widget的属性中
+    editor->setProperty("filePath", filePath);
+
+    int index = m_tabWidget->addTab(editor, title);
+    m_tabWidget->setCurrentIndex(index);
+
+    return editor;
+}
+
+QString Notepad::getFilePath(int index)
+{
+    QPlainTextEdit* editor = editorAt(index);
+    if (editor)
+        return editor->property("filePath").toString();
+    return QString();
+}
+
+void Notepad::setFilePath(int index, const QString& path)
+{
+    QPlainTextEdit* editor = editorAt(index);
+    if (editor)
+        editor->setProperty("filePath", path);
+}
+
+void Notepad::updateTabTitle(int index, const QString& filePath)
+{
+    if (filePath.isEmpty())
+        return;
+
+    QFileInfo fileInfo(filePath);
+    m_tabWidget->setTabText(index, fileInfo.fileName());
+    m_tabWidget->setTabToolTip(index, filePath);
+}
+
 void Notepad::onNewFile()
 {
-    m_textEdit->clear();
-    m_currentFilePath.clear();
+    m_untitledCount++;
+    QString title = QString("Untitled %1").arg(m_untitledCount);
+    createEditorTab(title);
 }
 
 void Notepad::onOpenFile()
 {
     QString fileName = QFileDialog::getOpenFileName(
         this,
-        "Open Text File",
+        "Open File",
         QDir::homePath(),
-        "Text Files (*.txt);;Markdown Files (*.md);;All Files (*)",
+        "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)",
         nullptr,
         QFileDialog::DontUseNativeDialog
     );
@@ -82,8 +132,17 @@ void Notepad::onOpenFile()
     if (fileName.isEmpty())
         return;
 
-    QFile file(fileName);
+    // 检查文件是否已经打开
+    for (int i = 0; i < m_tabWidget->count(); i++)
+    {
+        if (getFilePath(i) == fileName)
+        {
+            m_tabWidget->setCurrentIndex(i);
+            return;
+        }
+    }
 
+    QFile file(fileName);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
         QMessageBox::warning(this, "Error", "Cannot open file");
@@ -94,21 +153,38 @@ void Notepad::onOpenFile()
     QString content = in.readAll();
     file.close();
 
-    if(m_textEdit != nullptr)
-        m_textEdit->setPlainText(content);
+    // 创建新Tab并加载内容
+    QFileInfo fileInfo(fileName);
+    QPlainTextEdit* editor = createEditorTab(fileInfo.fileName(), fileName);
+    editor->setPlainText(content);
 
-    m_currentFilePath = fileName;
+    int currentIndex = m_tabWidget->currentIndex();
+    m_tabWidget->setTabToolTip(currentIndex, fileName);
 }
 
 void Notepad::onSaveFile()
 {
-    QFile file(m_currentFilePath);
+    int currentIndex = m_tabWidget->currentIndex();
+    QString filePath = getFilePath(currentIndex);
 
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    // 如果没有文件路径，调用另存为
+    if (filePath.isEmpty())
+    {
+        onSaveAsFile();
         return;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    {
+        QMessageBox::warning(this, "Error", "Cannot save file");
+        return;
+    }
 
     QTextStream out(&file);
-    out << m_textEdit->toPlainText();
+    QPlainTextEdit* editor = currentEditor();
+    if (editor)
+        out << editor->toPlainText();
 
     file.close();
 }
@@ -128,7 +204,6 @@ void Notepad::onSaveAsFile()
         return;
 
     QFile file(fileName);
-
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
     {
         QMessageBox::warning(this, "Error", "Cannot save file");
@@ -136,8 +211,52 @@ void Notepad::onSaveAsFile()
     }
 
     QTextStream out(&file);
-    out << m_textEdit->toPlainText();
+    QPlainTextEdit* editor = currentEditor();
+    if (editor)
+        out << editor->toPlainText();
+
     file.close();
 
-    m_currentFilePath = fileName;
+    // 更新文件路径和Tab标题
+    int currentIndex = m_tabWidget->currentIndex();
+    setFilePath(currentIndex, fileName);
+    updateTabTitle(currentIndex, fileName);
+}
+
+void Notepad::onCloseTab(int index)
+{
+    if (m_tabWidget->count() == 1)
+    {
+        // 最后一个Tab，清空内容而不是关闭
+        QPlainTextEdit* editor = editorAt(index);
+        if (editor)
+        {
+            editor->clear();
+            editor->setProperty("filePath", QString());
+            m_tabWidget->setTabText(index, "Untitled 1");
+            m_tabWidget->setTabToolTip(index, "");
+        }
+        return;
+    }
+
+    QWidget* widget = m_tabWidget->widget(index);
+    m_tabWidget->removeTab(index);
+    delete widget;
+}
+
+void Notepad::onTabChanged(int index)
+{
+    if (index < 0)
+        return;
+
+    QString filePath = getFilePath(index);
+    if (!filePath.isEmpty())
+    {
+        QFileInfo fileInfo(filePath);
+        setWindowTitle(QString("%1 - Markdown Editor").arg(fileInfo.fileName()));
+    }
+    else
+    {
+        setWindowTitle(QString("%1 - Markdown Editor").arg(m_tabWidget->tabText(index)));
+    }
 }
